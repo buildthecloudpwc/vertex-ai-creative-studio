@@ -15,7 +15,7 @@
       "group": "foundation",
       "mode": "image",
       "description": "Generate images from text prompts using Imagen.",
-      "video_url": "https://deepmind.google/api/blob/website/media/imagen__page_cover.mp4"
+      "video_url": "https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/media/imagen__page_cover.mp4"
     },
     {
       "id": 8,
@@ -35,7 +35,7 @@
       "group": "foundation",
       "mode": "video",
       "description": "Generate videos from text or image prompts using Veo.",
-      "video_url": "https://deepmind.google/api/blob/website/media/veo__cover_s0RKXWX.mp4"
+      "video_url": "https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/media/veo__cover_s0RKXWX.mp4"
     },
     {
       "id": 12,
@@ -46,7 +46,7 @@
       "group": "foundation",
       "mode": "image",
       "description": "Generate images from text prompts using Gemini.",
-      "video_url": "https://deepmind.google/api/blob/website/media/gemini-image__page_cover.mp4"
+      "video_url": "https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/media/gemini-image__page-cover.mp4"
     },
     {
       "id": 14,
@@ -56,7 +56,7 @@
       "group": "foundation",
       "mode": "speech",
       "description": "Gemini's latest Text to Speech mode",
-      "video_url": "https://deepmind.google/api/blob/website/media/lyria_header.mp4",
+      "video_url": "https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/media/lyria_header.mp4",
       "video_object_position": "bottom"
     },
     {
@@ -67,7 +67,7 @@
       "group": "foundation",
       "mode": "speech",
       "description": "Generate high-definition speech from text using Chirp 3.",
-      "video_url": "https://deepmind.google/api/blob/website/media/lyria_realtime_header.mp4",
+      "video_url": "https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/media/lyria_realtime_header.mp4",
       "video_object_position": "bottom"
     },
     {
@@ -79,10 +79,20 @@
       "feature_flag": "LYRIA_PROJECT_ID",
       "mode": "music",
       "description": "Generate music from text prompts using Lyria.",
-      "video_url": "https://deepmind.google/api/blob/website/media/lyria_header.mp4",
+      "video_url": "https://storage.googleapis.com/gdm-deepmind-com-prod-public/media/media/lyria_header.mp4",
       "video_object_position": "bottom"
     },
-
+    {
+      "id": 25,
+      "display": "Gemini",
+      "icon": "spark",
+      "route": "/gemini-writers-workshop",
+      "group": "foundation",
+      "mode": "text",
+      "description": "Collaborate with Gemini in the Writers Workshop",
+      "video_url": "https://storage.googleapis.com/gweb-uniblog-publish-prod/original_videos/capability__native-audio_16-9.mp4",
+      "video_object_position": "bottom"
+    },
     {
       "id": 30,
       "display": "Virtual Try-On",
@@ -148,6 +158,15 @@
     },
     {
       "id": 60,
+      "display": "Object Rotation",
+      "icon": "360",
+      "route": "/object-rotation",
+      "group": "workflows",
+      "feature_flag": "EDIT_IMAGES_ENABLED",
+      "description": "Create 360-degree product videos from a single image."
+    },
+    {
+      "id": 70,
       "display": "Library",
       "icon": "perm_media",
       "route": "/library_v2",
@@ -155,7 +174,7 @@
       "description": "Browse your generated media."
     },
     {
-      "id": 63,
+      "id": 80,
       "display": "Pixie Compositor",
       "icon": "auto_fix_high",
       "route": "/pixie_compositor",
@@ -164,7 +183,7 @@
       "description": "Pixie helps you combine generative media."
     },
     {
-      "id": 64,
+      "id": 85,
       "display": "Labs",
       "icon": "science",
       "route": "/labs",
@@ -174,7 +193,7 @@
       "description": "Odd things are bubbling."
     },
     {
-      "id": 65,
+      "id": 95,
       "display": "About",
       "icon": "info",
       "route": "/about",
@@ -183,7 +202,7 @@
       "description": "Information about GenMedia Creative Studio."
     },
     {
-      "id": 100,
+      "id": 99,
       "display": "Settings",
       "icon": "settings",
       "route": "/config",

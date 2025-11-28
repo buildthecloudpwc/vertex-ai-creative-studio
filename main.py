@@ -24,7 +24,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.wsgi import WSGIMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from google.auth import impersonated_credentials
 from google.cloud import storage
@@ -32,10 +32,14 @@ from pydantic import BaseModel
 
 import pages.shop_the_look
 from app_factory import app
+from common.prompt_template_service import PromptTemplate
 from common.utils import create_display_url
+from routers import veo_router
 from config import default as config
 from models.video_processing import convert_mp4_to_gif
 from pages import about as about_page
+from pages import setup_profile as setup_profile_page  # noqa: F401 - register page
+from pages import access_restricted as access_restricted_page  # noqa: F401 - register page
 from pages import banana_studio as banana_studio_page
 from pages import character_consistency as character_consistency_page
 from pages import chirp_3hd as chirp_3hd_page
@@ -43,10 +47,12 @@ from pages import config as config_page
 from pages import gemini_image_generation as gemini_image_generation_page
 from pages import gemini_tts as gemini_tts_page
 from pages import gemini_writers_workshop as gemini_writers_workshop_page
+from pages import guideline_analysis as guideline_analysis_page
 from pages import home as home_page
 from pages import imagen as imagen_page
 from pages import interior_design_v2 as interior_design_page
 from pages import lyria as lyria_page
+from pages import object_rotation as object_rotation_page
 from pages import pixie_compositor as pixie_compositor_page
 from pages import portraits as motion_portraits
 from pages import recontextualize as recontextualize_page
@@ -66,7 +72,16 @@ from pages.test_pixie_compositor import test_pixie_compositor_page
 from pages.test_svg import test_svg_page
 from pages.test_uploader import test_uploader_page
 from pages.test_vto_prompt_generator import page as test_vto_prompt_generator_page
+from pages.test_async_veo import page as test_async_veo_page
+import pages.imagen_upscale
+import pages.storyboarder
+import pages.character_sheet
+import pages.brand_adherence
+from workflows.retro_games import page as retro_games
 from state.state import AppState
+from models import budget as budget_service
+import logging
+logging.basicConfig(level=logging.INFO)
 
 
 class UserInfo(BaseModel):
@@ -78,10 +93,19 @@ class UserInfo(BaseModel):
 router = APIRouter()
 app.include_router(router)
 
+# Block manual navigation to onboarding/budget pages
+
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return FileResponse("assets/favicon.ico")
+    # Redirect to the mounted static assets to avoid file path issues in some environments
+    return RedirectResponse(url="/assets/favicon.ico", status_code=307)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logging.exception("[unhandled] path=%s error=%s", request.url.path, exc)
+    return JSONResponse(status_code=500, content={"error": "internal_server_error"})
 
 
 # Define allowed origins for CORS
@@ -150,9 +174,9 @@ async def add_global_csp(request: Request, call_next):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://esm.sh https://cdn.jsdelivr.net; "
-        "connect-src 'self' https://esm.sh https://storage.cloud.google.com https://storage.googleapis.com https://*.googleusercontent.com; "
+        "connect-src 'self' https://esm.sh https://cdn.jsdelivr.net https://storage.cloud.google.com https://storage.googleapis.com https://*.googleusercontent.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com http://fonts.googleapis.com/; "
-        "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com http://fonts.googleapis.com;"
+        "font-src 'self' data: https://fonts.gstatic.com https://fonts.googleapis.com http://fonts.googleapis.com;"
         "img-src 'self' data: blob: https://google-ai-skin-tone-research.imgix.net https://storage.cloud.google.com https://storage.googleapis.com https://*.googleusercontent.com; "
         "media-src 'self' https://deepmind.google https://storage.cloud.google.com https://storage.googleapis.com https://*.googleusercontent.com; "
         "worker-src 'self' blob:;"
@@ -162,16 +186,57 @@ async def add_global_csp(request: Request, call_next):
 
 @app.middleware("http")
 async def set_request_context(request: Request, call_next):
+    """Sets user/session data and enforces budget access control before Mesop handles the route."""
+    path = request.url.path or "/"
+
+    # Public prefixes and asset extensions should bypass budget checks
+    public_prefixes = (
+        "/favicon.ico",
+        "/static",
+        "/assets",
+        "/__web-components-module__",
+        "/__ui__",
+        "/.well-known",
+        "/api/",
+        "/auth/",
+        "/setup_profile",
+        "/access_restricted",
+    )
+    asset_exts = (
+        ".js",
+        ".mjs",
+        ".css",
+    ".map",
+    ".json",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".ico",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".eot",
+        ".wasm",
+        ".webp",
+        ".mp4",
+        ".webm",
+    )
+    is_public_prefix = any(path.startswith(p) for p in public_prefixes)
+    is_asset_request = any(path.lower().endswith(ext) for ext in asset_exts)
+
+    # Resolve identity from IAP header; use anonymous for local/dev
     user_email = request.headers.get("X-Goog-Authenticated-User-Email")
     if not user_email:
         user_email = "anonymous@google.com"
     if user_email.startswith("accounts.google.com:"):
         user_email = user_email.split(":")[-1]
 
-    session_id = request.cookies.get("session_id")
-    if not session_id:
-        session_id = str(uuid.uuid4())
+    # Get or create a session id
+    session_id = request.cookies.get("session_id") or str(uuid.uuid4())
 
+    # Stash in ASGI scope for Mesop/state
     request.scope["MESOP_USER_EMAIL"] = user_email
     request.scope["MESOP_SESSION_ID"] = session_id
 
@@ -179,11 +244,79 @@ async def set_request_context(request: Request, call_next):
     if config.Default.GA_MEASUREMENT_ID:
         request.scope["MESOP_GA_MEASUREMENT_ID"] = config.Default.GA_MEASUREMENT_ID
 
+    # Enforce onboarding/budget for protected routes (skip assets/public)
+    if not (is_public_prefix or is_asset_request):
+        # Branch by budget scope
+        scope = config.Default.BUDGET_SCOPE
+        if scope == "project":
+            # In project mode, skip profile setup and use a single project budget key
+            if config.Default.BUDGET_CHECK_ENABLED:
+                try:
+                    project_budget = budget_service.get_project_budget()
+                    if project_budget is None:
+                        logging.info("[budget] missing_project_budget path=%s user=%s key=%s", path, user_email, config.Default.BUDGET_PROJECT_KEY)
+                        return RedirectResponse(url="/access_restricted", status_code=302)
+                    monthly_cost = budget_service.get_monthly_cloud_cost()
+                    if monthly_cost is None:
+                        logging.info(
+                            "[budget] cost_unavailable path=%s user=%s billing_project=%s dataset=%s table=%s",
+                            path, user_email, config.Default.BILLING_PROJECT_ID, config.Default.BILLING_DATASET, config.Default.BILLING_TABLE,
+                        )
+                        return RedirectResponse(url="/access_restricted", status_code=302)
+                    if monthly_cost > float(project_budget):
+                        logging.info(
+                            "[budget] over_budget_project path=%s user=%s cost=%.2f budget=%.2f",
+                            path, user_email, monthly_cost, float(project_budget),
+                        )
+                        return RedirectResponse(url="/access_restricted", status_code=302)
+                except Exception as ex:
+                    logging.exception("[budget] evaluation_failed_project path=%s user=%s error=%s", path, user_email, ex)
+                    return RedirectResponse(url="/access_restricted", status_code=302)
+        else:
+            # Department mode: require user profile BEFORE any budget checks
+            try:
+                dept = budget_service.get_user_department(user_email)
+            except Exception as ex:
+                logging.exception("[guard] missing_department_error path=%s user=%s error=%s", path, user_email, ex)
+                return RedirectResponse(url="/setup_profile", status_code=302)
+            if not dept:
+                logging.info("[guard] missing_department path=%s user=%s", path, user_email)
+                return RedirectResponse(url="/setup_profile", status_code=302)
+
+            if config.Default.BUDGET_CHECK_ENABLED:
+                try:
+                    dept_budget = budget_service.get_department_budget(dept)
+                    if dept_budget is None:
+                        logging.info("[budget] missing_budget path=%s user=%s dept=%s", path, user_email, dept)
+                        return RedirectResponse(url="/access_restricted", status_code=302)
+
+                    monthly_cost = budget_service.get_monthly_cloud_cost()
+                    # Require cost availability in all environments
+                    if monthly_cost is None:
+                        logging.info(
+                            "[budget] cost_unavailable path=%s user=%s dept=%s billing_project=%s dataset=%s table=%s",
+                            path, user_email, dept, config.Default.BILLING_PROJECT_ID, config.Default.BILLING_DATASET, config.Default.BILLING_TABLE,
+                        )
+                        return RedirectResponse(url="/access_restricted", status_code=302)
+                    if monthly_cost is not None and monthly_cost > float(dept_budget):
+                        logging.info(
+                            "[budget] over_budget path=%s user=%s dept=%s cost=%.2f budget=%.2f",
+                            path, user_email, dept, monthly_cost, float(dept_budget),
+                        )
+                        return RedirectResponse(url="/access_restricted", status_code=302)
+                except Exception as ex:  # defensive catch: never 500 on guard
+                    logging.exception("[budget] evaluation_failed path=%s user=%s error=%s", path, user_email, ex)
+                    return RedirectResponse(url="/access_restricted", status_code=302)
+
+    # Continue request
     response = await call_next(request)
-    response.set_cookie(
-        key="session_id", value=session_id, httponly=True, samesite="Lax"
-    )
+    response.set_cookie(key="session_id", value=session_id, httponly=True, samesite="Lax")
     return response
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return {"ok": True}
 
 
 # Test page routes are left as is, they don't need the scaffold
@@ -203,6 +336,7 @@ me.page(path="/test_vto_prompt_generator", title="Test VTO Prompt Generator")(
 )
 me.page(path="/test_svg", title="Test SVG")(test_svg_page)
 me.page(path="/test_media_chooser", title="Test Media Chooser")(test_media_chooser_page)
+me.page(path="/test_async_veo", title="Test Async Veo")(test_async_veo_page)
 
 
 
@@ -247,7 +381,19 @@ async def get_media_proxy(request: Request, bucket_name: str, object_path: str):
 
 @app.get("/")
 def home() -> RedirectResponse:
-    return RedirectResponse(url="/home")
+    try:
+        return RedirectResponse(url="/welcome")
+    except Exception as ex:
+        logging.exception("[unhandled] redirect_home_failed error=%s", ex)
+        return JSONResponse(status_code=500, content={"error": "redirect_home_failed"})
+
+
+# Some environments request a Chrome DevTools manifest under .well-known.
+# Mesop may try to serve a missing file and raise 500. Intercept and return
+# a minimal JSON to avoid noisy errors.
+@app.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
+def chrome_devtools_manifest():
+    return JSONResponse(content={}, media_type="application/json")
 
 
 # Use this to mount the static files for the Mesop app
@@ -271,11 +417,8 @@ app.mount(
     name="static",
 )
 
-app.mount(
-    "/assets",
-    StaticFiles(directory="assets"),
-    name="assets",
-)
+app.include_router(veo_router.router)
+
 
 
 app.mount(
@@ -287,7 +430,14 @@ app.mount(
 
 
 if __name__ == "__main__":
-    import uvicorn
+    try:
+        import uvicorn  # type: ignore
+    except Exception:
+        # Uvicorn may not be available during certain linting/dev setups.
+        # In production we run under gunicorn.
+        raise SystemExit(
+            "uvicorn is not installed. Run with gunicorn in production or install uvicorn for local dev."
+        )
 
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))

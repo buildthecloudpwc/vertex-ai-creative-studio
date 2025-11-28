@@ -9,6 +9,7 @@ __pycache__
 .vscode
 .DS_Store
 samples/
+.terraform.lock.hcl
 # gemini-cli settings
 .gemini/
 
@@ -21,6 +22,7 @@ node_modules
 dist
 local/  
 recaps/
+plans/
 
 ### Terraform ###
 # Local .terraform directories
@@ -60,3 +62,4 @@ terraform.rc
 
 ## MCP Servers
 drivectl-mcp.log
+.genkit/

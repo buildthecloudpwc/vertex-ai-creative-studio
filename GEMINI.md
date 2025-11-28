@@ -14,14 +14,32 @@ See also AGENTS.md for more information.
 - **CRITICAL: READ, DON'T ASSUME, CUSTOM COMPONENT APIs.** This project contains many custom components in the `components/` directory. Their function signatures (the parameters they accept) are defined *within this project* and may not match your assumptions or standard Mesop patterns. Before using a custom component, you **MUST** read its source file to understand its exact API. Failure to do so will lead to `TypeError` exceptions (e.g., "unexpected keyword argument"). This is the most common and avoidable source of errors.
 - **NEVER use `me.EventHandler` as a type hint.** It does not exist in the Mesop API and will cause an `AttributeError`. The correct type hint for event handler callbacks is `typing.Callable`.
 - **The `key` parameter is for native Mesop components ONLY.** Do not add a `key` parameter to custom `@me.component` functions unless you have specifically programmed them to accept and use it. To differentiate between multiple instances of a custom component, pass a unique identifier to a *different*, dedicated prop (e.g., `component_id: str`) if needed. For event differentiation, the `key` should be placed on the clickable native component *inside* your custom component.
-- **The `key` parameter is for native Mesop components ONLY.** Do not add a `key` parameter to custom `@me.component` functions unless you have specifically programmed them to accept and use it. To differentiate between multiple instances of a custom component, pass a unique identifier to a *different*, dedicated prop (e.g., `component_id: str`) if needed. For event differentiation, the `key` should be placed on the clickable native component *inside* your custom component.
 - **`me.Style` has no `combine` method.** Mesop `Style` objects are immutable and do not have a built-in merge or combine function. To override default styles, you must manually construct a new `me.Style` object, property by property, giving precedence to the custom styles.
 - **`@me.content_component` must always render `me.slot()`**. A function decorated with `@me.content_component` must have a code path that calls `me.slot()`. Do not use an early `return` to control visibility. Instead, the component should always render, and its visibility should be controlled by the `display` property in its style (e.g., `display="block" if is_open else "none"`).
 - **Components must be theme-aware.** Do not hardcode colors like `background="#fff"`. Instead, use `me.theme_var()` (e.g., `me.theme_var("surface")`) to ensure components adapt to the current light or dark theme.
 - **Handle content overflow.** For container components like dialogs, always include `overflow_y="auto"` in the style to ensure that long content is scrollable and does not break the layout.
+- **`me.link` does not support `target` in Python.** The Python wrapper for `me.link` in this version does not accept a `target` argument (e.g., `target="_blank"`). Do not attempt to use it, as it will cause a runtime `TypeError`.
 
 - **Error Recovery for Component APIs:** If you encounter a `TypeError: unexpected keyword argument` or
      `AttributeError` related to a component, it is a strong signal that you have misunderstood its API. Your **immediate first step** must be to stop and use `read_file` to examine the source code of the component that caused the error. Read the `def` line of the component function to see the exact, correct arguments.
+
+# Custom Web Components
+
+When creating custom web components (Lit Elements) for Mesop:
+
+1.  **Correct Decorator:** Use `@me.web_component(path="./my_component.js")` from the main `mesop` package. Do *not* use `mesop.labs` or `@mel.component`.
+2.  **Correct Insertion:** Use `me.insert_web_component(name="my-component", ...)` inside the decorated function. Note that `me.insert_web_component` does *not* take a `path` argument; the path is handled by the decorator.
+3.  **Theme Integration:**
+    *   **Pass Theme Mode:** Pass the current theme (e.g., `theme_mode="dark"`) as a property to the web component.
+    *   **CSS Overrides:** In the Lit component's `updated` lifecycle method, apply a class (e.g., `.dark-theme`) to the container based on the property.
+    *   **Aggressive Styling:** For third-party HTML snippets that have their own styles (like Google Search results), use aggressive CSS overrides (`!important`) scoped to the theme class to force them to respect your app's theme variables.
+    *   **Example:**
+        ```css
+        #container.dark-theme * {
+          background-color: transparent !important;
+          color: var(--md-sys-color-on-surface) !important;
+        }
+        ```
 
 # Mesop Hints and Lessons Learned
 
@@ -316,6 +334,22 @@ gs://<bucket-name>/<object-name>
 
 When constructing a GCS URI, make sure to not include the `gs://` prefix more than once.
 
+# Adding New Pages
+
+To add a new page to the application, follow this standard pattern:
+
+1.  **Create Page Module:** Create your page file (e.g., `pages/my_new_feature.py`).
+2.  **Use Decorator:** Use the `@me.page` decorator directly on the main page function within that file.
+    ```python
+    @me.page(path="/my-feature", title="My Feature")
+    def page():
+        # ...
+    ```
+3.  **Register in main.py:** Import the module in `main.py` to ensure it's loaded. Do *not* re-register it with `me.page()` in `main.py` unless you specifically need to override properties.
+    ```python
+    import pages.my_new_feature # Registers the page via the decorator
+    ```
+
 # Feature Implementation: The Full Data Lifecycle Checklist
 
 When adding a new data field (e.g., a prompt, parameter, or setting) to a feature, you must trace and modify its entire lifecycle. Before marking the task as complete, verify each of the following steps:
@@ -324,8 +358,8 @@ When adding a new data field (e.g., a prompt, parameter, or setting) to a featur
 2.  **UI Input:** Has the UI component for user input been added or modified in `pages/`?
 3.  **Request Schema:** Has the data contract in `models/requests.py` been updated?
 4.  **Model Logic:** Has the core generation function in `models/` been updated to use the field?
-5.  **Persistence (Write):** Has the `MediaItem` in `common/metadata.py` been updated, AND is the field being saved correctly from the page's `on_click` handler?
-6.  **Persistence (Read):** Has the data loading function (`get_media_for_page` in `pages/library.py`) been updated to read the field from Firestore into the `MediaItem` object?
+5.  **Persistence (Write):** Has the `MediaItem` dataclass in `common/metadata.py` been updated with the new field?
+6.  **Persistence (Read):** CRITICAL: Has the `_create_media_item_from_dict` function in `common/metadata.py` been updated to map the Firestore data back to the `MediaItem` field?
 7.  **UI Display:** Is the field now displayed correctly in all relevant views (e.g., the library details dialog)?
 8.  **Edge Cases:** Have all related user actions, like "Clear" or "Reset" buttons, been updated to handle the new field?
 # Refactoring Strategy
@@ -390,3 +424,55 @@ with track_model_call("my-generative-model-v1", prompt_length=len(prompt)):
 # Tool Usage
 
 - **No Command Substitution:** You are not allowed to use command substitution (e.g., `$(...)` or `` `...` ``) within the `run_shell_command` tool for security reasons. If you need the output of one command as an argument for another, you must run them as two separate tool calls.
+
+## Advanced Mesop Patterns: State and Closures
+
+### 1. Global vs. Component State
+**The Problem:** Multiple instances of a custom component (e.g., `library_chooser_button`) on the same page share the same state, causing conflicts (e.g., clicking one button opens the dialog for all of them, or with wrong data).
+**The Cause:** Mesop's `me.state(StateClass)` is global per user session. It does not automatically create separate state instances for different component instances.
+**The Solution:**
+*   **Option A (Preferred for simple cases):** Use a unique `key` for each component instance. In the component's render function, only render active content (like a dialog) if `state.active_key == key`.
+*   **Option B (For complex per-component state):** Use a global dictionary in your state class, keyed by the component's unique key: `choosers: dict[str, ChooserState] = field(default_factory=dict)`.
+
+### 2. Late Binding in Event Handlers
+**The Problem:** A component is used multiple times with different arguments (e.g., `media_type=["video"]` vs `["audio"]`). Clicking any instance always uses the argument value from the *last* instance rendered.
+**The Cause:** Python's late binding in closures. The event handler function (defined inside the component function) captures the *variable*, not the *value* at the time of definition.
+**The Solution:** Force early binding at definition time.
+*   **Use `functools.partial`:** `on_click=partial(handler, arg=current_value)`
+*   **Use default arguments:** `def handler(e, arg=current_value): ...`
+
+### 3. Improving Perceived Responsiveness
+**The Problem:** A dialog takes too long to close after a selection is made.
+**The Cause:** The event handler performs a long-running operation (or yields many times) *before* updating the state that controls the dialog's visibility.
+**The Solution:** Close the dialog immediately. In the selection handler, set `state.show_dialog = False` and `yield` *before* starting any other work.
+
+### 4. Avoid Deeply Nested Logic
+**The Problem:** Inserting `if/else` logic or complex components directly into a deeply nested `with me.box():` structure often leads to unclosed parentheses and `SyntaxError`.
+**The Solution:** Extract conditional UI logic into small helper functions.
+*   **Bad:** Writing a 10-line `if state.value: ...` block inside a 5-level deep component tree.
+*   **Good:** Call `_render_status_pill(state)` inside the tree, and define that function separately. This keeps the main render tree clean and makes syntax errors obvious.
+
+## Deployment and Operations
+
+### Handling Long-Running Requests (Timeouts)
+**The Problem:** Long-running generations (e.g., video) fail after 5 minutes (300s) even if the `Procfile` is correctly set to `--timeout 0`.
+**The Cause:** Cloud Run has a separate infrastructure-level timeout that defaults to 300 seconds. It forcefully terminates connections regardless of the application server's willingness to wait.
+**The Solution:** You must explicitly set the Cloud Run timeout during deployment.
+*   **Flag:** Add `--timeout 3600` (1 hour) to your `gcloud run deploy` command.
+*   **Procfile:** Ensure your `Procfile` still includes `--timeout 0` for Gunicorn.
+
+## Refactoring Protocols
+
+### Signature Change Protocol
+When modifying the arguments or return values of a core function (e.g., in `models/`):
+1.  **Search:** Perform a codebase-wide search (`search_file_content`) for the function name *before* making changes.
+2.  **Inventory:** List every file that calls this function.
+3.  **Update:** Update every call site to match the new signature. If a new return value is not needed in a specific context, explicitly ignore it (e.g., `uris, _, _ = generate(...)`).
+
+## Python Best Practices
+
+### Modern Type Hinting (PEP 585)
+**The Guideline:** In Python 3.9 and newer, use built-in collection types (`list`, `dict`, `tuple`, `set`) for type hinting instead of the deprecated `typing.List`, `typing.Dict`, etc.
+**Reference:** [PEP 585](https://peps.python.org/pep-0585/)
+*   **Bad:** `def get_names() -> List[str]:`
+*   **Good:** `def get_names() -> list[str]:`
